@@ -233,7 +233,8 @@ def batchnorm_backward(dout, cache):
     dbatch_var = np.sum(dbatch_var, axis=0)
     dbatch_mean = dx_normlized / -np.sqrt(batch_var + eps)
     dbatch_mean = np.sum(dbatch_mean, axis=0)
-    dx = dx_normlized / np.sqrt(batch_var + eps) + dbatch_var * 2 * (x - batch_mean) / N + dbatch_mean / N
+    dx = dx_normlized / np.sqrt(batch_var + eps) + dbatch_var * \
+        2 * (x - batch_mean) / N + dbatch_mean / N
     dgamma = np.sum(dout * normalized_x, axis=0)
     dbeta = np.sum(dout, axis=0)
     #############################################################################
@@ -269,7 +270,8 @@ def batchnorm_backward_alt(dout, cache):
     dgamma = np.sum(dout * normalized_x, axis=0)
     dbeta = np.sum(dout, axis=0)
     shift_x = x - batch_mean
-    dx = dout - np.mean(dout, axis=0) - shift_x * np.mean(dout * shift_x, axis=0) / (batch_var + eps)
+    dx = dout - np.mean(dout, axis=0) - shift_x * \
+        np.mean(dout * shift_x, axis=0) / (batch_var + eps)
     dx = dx * gamma / np.sqrt(batch_var + eps)
     #############################################################################
     #                             END OF YOUR CODE                              #
@@ -382,7 +384,22 @@ def conv_forward_naive(x, w, b, conv_param):
     # TODO: Implement the convolutional forward pass.                           #
     # Hint: you can use the function np.pad for padding.                        #
     #############################################################################
-    pass
+    stride = conv_param['stride']
+    pad = conv_param['pad']
+    N, C, H, W = x.shape
+    F, C, HH, WW = w.shape
+    H1 = 1 + (H + 2 * pad - HH) / stride
+    W1 = 1 + (H + 2 * pad - WW) / stride
+    out = np.zeros([N, F, H1, W1])
+    x_pad = np.pad(x, ((0, 0), (0, 0), (pad, pad), (pad, pad)), 'constant')
+    kernel = np.reshape(w, (F, -1)).T
+    for i in xrange(0, H + 2 * pad - HH + 1, stride):
+        for j in xrange(0, W + 2 * pad - WW + 1, stride):
+            # fetch the N image areas with size C, HH, WW
+            x_patch = x_pad[:, :, i:i + HH, j:j + WW]
+            x_patch = np.reshape(x_patch, (N, -1))
+            y_patch = x_patch.dot(kernel) + b   # y_patch N, F
+            out[:, :, i / stride, j / stride] = y_patch
     #############################################################################
     #                             END OF YOUR CODE                              #
     #############################################################################
@@ -407,7 +424,31 @@ def conv_backward_naive(dout, cache):
     #############################################################################
     # TODO: Implement the convolutional backward pass.                          #
     #############################################################################
-    pass
+    x, w, b, conv_param = cache
+    stride = conv_param['stride']
+    pad = conv_param['pad']
+    x_pad = np.pad(x, ((0, 0), (0, 0), (pad, pad), (pad, pad)), 'constant')
+    N, C, H, W = x.shape
+    F, C, HH, WW = w.shape
+    kernel = np.reshape(w, (F, -1)).T
+    dkernel = np.zeros_like(kernel)
+    db = np.zeros_like(b)
+    dx_pad = np.zeros_like(x_pad)
+    for i in xrange(0, H + 2 * pad - HH + 1, stride):
+        for j in xrange(0, W + 2 * pad - WW + 1, stride):
+            # fetch the N image areas with size C, HH, WW
+            x_patch = x_pad[:, :, i:i + HH, j:j + WW]
+            x_patch = np.reshape(x_patch, (N, -1))
+            # fetch the corresponding dout
+            dout_patch = dout[:, :, i / stride, j / stride]
+            dx_patch = dout_patch.dot(kernel.T)
+            dx_patch = np.reshape(dx_patch, (N, C, HH, WW))
+            dx_pad[:, :, i:i + HH, j:j + WW] += dx_patch
+            dkernel += x_patch.T.dot(dout_patch)
+            db += np.sum(dout_patch, axis=0)
+    dw = np.reshape(dkernel.T, w.shape)
+    db = np.reshape(db, b.shape)
+    dx = dx_pad[:, :, pad: pad + H, pad: pad + W]
     #############################################################################
     #                             END OF YOUR CODE                              #
     #############################################################################
@@ -433,7 +474,18 @@ def max_pool_forward_naive(x, pool_param):
     #############################################################################
     # TODO: Implement the max pooling forward pass                              #
     #############################################################################
-    pass
+    N, C, H, W = x.shape
+    pool_height = pool_param['pool_height']
+    pool_width = pool_param['pool_width']
+    stride = pool_param['stride']
+    H1 = (H - pool_height) / stride + 1
+    W1 = (W - pool_width) / stride + 1
+    out = np.zeros([N, C, H1, W1])
+    for i in xrange(0, H - pool_height + 1, stride):
+        for j in xrange(0, W - pool_width + 1, stride):
+            x_patch = x[:, :, i: i + pool_height, j: j + pool_width]
+            x_patch = x_patch.reshape((N * C, -1))
+            out[:, :, i / stride, j / stride] = x_patch.max(axis=1).reshape((N, C))
     #############################################################################
     #                             END OF YOUR CODE                              #
     #############################################################################
@@ -456,7 +508,24 @@ def max_pool_backward_naive(dout, cache):
     #############################################################################
     # TODO: Implement the max pooling backward pass                             #
     #############################################################################
-    pass
+    x, pool_param = cache
+    N, C, H, W = x.shape
+    dx = np.zeros_like(x)
+    pool_height = pool_param['pool_height']
+    pool_width = pool_param['pool_width']
+    stride = pool_param['stride']
+    for i in xrange(0, H - pool_height + 1, stride):
+        for j in xrange(0, W - pool_width + 1, stride):
+            x_patch = x[:, :, i: i + pool_height, j: j + pool_width]
+            x_patch = x_patch.reshape((N * C, -1))
+            max_id = np.argmax(x_patch, axis=1)
+            max_y = list(max_id)
+            max_x = list(np.arange(N * C))
+            tmp = np.zeros_like(x_patch)
+            tmp[max_x, max_y] = 1
+            tmp = tmp.reshape((N, C, pool_height, pool_width))
+            dx[:, :, i:i + pool_height, j:j + pool_width] += tmp * \
+                dout[:, :, i / stride, j / stride].reshape((N, C, 1, 1))
     #############################################################################
     #                             END OF YOUR CODE                              #
     #############################################################################
@@ -494,7 +563,10 @@ def spatial_batchnorm_forward(x, gamma, beta, bn_param):
     # version of batch normalization defined above. Your implementation should  #
     # be very short; ours is less than five lines.                              #
     #############################################################################
-    pass
+    N, C, H, W = x.shape
+    x_reshaped = x.transpose(0, 2, 3, 1).reshape(N * H * W, C)
+    out_reshaped, cache = batchnorm_forward(x_reshaped, gamma, beta, bn_param)
+    out = out_reshaped.reshape(N, H, W, C).transpose(0, 3, 1, 2)
     #############################################################################
     #                             END OF YOUR CODE                              #
     #############################################################################
@@ -524,7 +596,10 @@ def spatial_batchnorm_backward(dout, cache):
     # version of batch normalization defined above. Your implementation should  #
     # be very short; ours is less than five lines.                              #
     #############################################################################
-    pass
+    N, C, H, W = dout.shape
+    dout_reshaped = dout.transpose(0, 2, 3, 1).reshape(N * H * W, C)
+    dx_reshaped, dgamma, dbeta = batchnorm_backward(dout_reshaped, cache)
+    dx = dx_reshaped.reshape(N, H, W, C).transpose(0, 3, 1, 2)
     #############################################################################
     #                             END OF YOUR CODE                              #
     #############################################################################
